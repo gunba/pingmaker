@@ -1,6 +1,6 @@
 # Pingmaker
 
-Latency compensation for Aion 2. Modifies inbound server response packets to adjust combat speed values, removing the artificial delay that ping adds between skill uses. No packets are sent, no memory is edited.
+Latency compensation for Aion 2. Modifies inbound server response packets to adjust combat speed values, removing the artificial delay that ping adds between skill uses.
 
 Compatible with **ExitLag**, **GearUp**, and other gaming proxies/VPNs.
 
