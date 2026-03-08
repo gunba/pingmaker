@@ -1,0 +1,8 @@
+__pycache__/
+*.exe
+pingmaker.build/
+pingmaker.dist/
+pingmaker.onefile-build/
+nuitka-crash-report.xml
+pingmaker_settings.json
+logs/
