@@ -130,7 +130,7 @@ ALL_SKILL_IDS = set()
 SKILL_FIRST_BYTES = set()
 
 WORKER_COUNT = min(os.cpu_count() or 2, 4)
-WORKERS_PER_HANDLE = 2  # workers per WinDivert handle when using per-port handles
+WORKERS_PER_HANDLE = 1  # workers per WinDivert handle when using per-port handles
 
 CAPTURE_FILTER = (
     "inbound and tcp and tcp.DstPort > 1024 and tcp.SrcPort > 1024 "
@@ -556,7 +556,7 @@ def has_skill_prefix(data: bytes, offset: int) -> bool:
     prefix = data[offset-4:offset]
     if prefix[0] != 0x38:
         return False
-    if prefix[3] != 0x00:
+    if prefix[3] not in (0x00, 0x01):
         return False
     if prefix[2] == 0x00:
         return False
@@ -2201,33 +2201,7 @@ class TickToolApp:
                         except Exception: pass
                 continue
 
-            # ── SKILL CANDIDATE PATH: may need modification, hold packet ──
-            if plen > 3:
-                with _reassembler_lock:
-                    bindings = stream_reassembler.feed(payload)
-                for actor_id, name, strategy, msg_hex, byte5 in bindings:
-                    is_candidate = entity_tracker.on_nickname_binding(actor_id, name, byte5=byte5)
-                    self.log_packet({
-                        'action': 'entity_binding' if is_candidate else 'entity_rejected',
-                        'accepted': is_candidate,
-                        'actor_id': actor_id,
-                        'name': name,
-                        'strategy': strategy,
-                        'byte5': byte5,
-                        'msg_hex': msg_hex,
-                        'all_keys': sorted(entity_tracker.get_my_keys()),
-                    })
-                    if is_candidate:
-                        ui_log(f"[Entity] Bound: {name} -> key {actor_id} ({strategy} b5=0x{byte5:02x})")
-
-            if _plugins:
-                _src_port = _unpack_from('>H', raw, ip_hdr_len)[0]
-                _dst_port = _unpack_from('>H', raw, ip_hdr_len + 2)[0]
-                ctx = PacketContext(payload, plen, raw, payload_offset, time.time(),
-                                   _src_port, _dst_port)
-                for p in _plugins:
-                    try: p.on_packet(ctx)
-                    except Exception: pass
+            # ── SKILL CANDIDATE PATH: modify + re-inject ASAP ──
 
             # Inline skill ID scan (read live from self for hot-reload)
             skill_id = 0
@@ -2247,7 +2221,8 @@ class TickToolApp:
                     break
 
             if not skill_id:
-                # Secondary scan for unknown IDs
+                # Secondary scan for unknown IDs — send immediately
+                _unknown_log = None
                 for i in range(scan_start, end - 7):
                     if payload[i] != 0x38:
                         continue
@@ -2263,7 +2238,7 @@ class TickToolApp:
                     unknown_id = _unpack_from('<I', payload, i + 4)[0]
                     if unknown_id not in _target_ids:
                         unknown_name = _id_to_name.get(unknown_id)
-                        self.log_packet({
+                        _unknown_log = {
                             'action': 'unknown_id',
                             'unknown_id': unknown_id,
                             'unknown_id_hex': f"0x{unknown_id:08X}",
@@ -2273,19 +2248,20 @@ class TickToolApp:
                             'pkt_type': payload[i + 9],
                             'pkt_len': plen,
                             'raw': payload.hex(),
-                        })
+                        }
                 try:
                     w.send(packet)
                 except Exception:
                     pass
+                if _unknown_log:
+                    self.log_packet(_unknown_log)
                 continue
 
-            # Found a skill ID
+            # Found a skill ID — extract metadata
             pkt_type = payload[skill_offset + 5] if skill_offset + 5 < plen else -1
             tick_byte = payload[skill_offset + 4] if skill_offset + 4 < plen else -1
             skill_name = _id_to_name.get(skill_id, f"ID:{skill_id}")
 
-            # Extract entity_key for filtering — lives just before the skill ID
             entity_key = None
             if skill_offset >= 3:
                 ek, ek_len = _parse_varint(payload, skill_offset - 3)
@@ -2309,42 +2285,38 @@ class TickToolApp:
                 'pkt_type': pkt_type,
                 'pkt_len': plen,
                 'prefix_ok': prefix_ok,
-                'raw': payload.hex(),
             }
-
-            # Add entity_key to log entries for debugging
             if entity_key is not None:
                 log_entry['entity_key'] = entity_key
 
-            # Filter: skip if entity tracking is active and this isn't our entity
+            # Entity filter — send immediately if not ours
             if entity_tracker.is_configured:
                 if not entity_tracker.has_any_keys():
-                    # No keys yet — don't modify anyone's packets
                     log_entry['action'] = 'no_entity_keys'
-                    self.log_packet(log_entry)
                     try:
                         w.send(packet)
                     except Exception:
                         pass
+                    log_entry['raw'] = payload.hex()
+                    self.log_packet(log_entry)
                     continue
                 if entity_key is not None and not entity_tracker.is_my_entity(entity_key):
                     log_entry['action'] = 'foreign_entity'
-                    self.log_packet(log_entry)
                     try:
                         w.send(packet)
                     except Exception:
                         pass
+                    log_entry['raw'] = payload.hex()
+                    self.log_packet(log_entry)
                     continue
 
-            # Confirm entity on ACT — if we matched our skill with this entity, it's ours
+            # Confirm entity on ACT
             if (pkt_type == 0x02 and entity_key is not None
                     and entity_tracker.is_configured):
                 if entity_tracker.confirm_sole_key(entity_key):
                     ui_log(f"[Entity] Confirmed key {entity_key} from ACT {skill_name}")
 
-            # Learn session + speed bytes (ACT only — non-ACT packet types
-            # have different structure after the prefix, so find_speed would
-            # misidentify the speed field and poison the fallback path)
+            # Learn session + speed bytes (ACT only)
             speed_result = None
             if prefix_ok and pkt_type == 0x02:
                 speed_result = _find_speed(payload, skill_offset)
@@ -2354,24 +2326,10 @@ class TickToolApp:
                     self._learned_speed_value = spd_val
                     if pfx_start >= 0:
                         self._learned_session_bytes = bytes(payload[pfx_start + 1:pfx_start + 3])
-                    if _plugins:
-                        raw_spd = bytes(payload[spd_off:spd_off + spd_len])
-                        for p in _plugins:
-                            try: p.set_learned_speed(spd_val, raw_spd)
-                            except Exception: pass
 
-            # Dispatch skill event to plugins (all ACT packets)
-            if pkt_type == 0x02 and _plugins:
-                evt = SkillEvent(skill_name, skill_id, pkt_type, tick_byte, prefix_ok, entity_key)
-                for p in _plugins:
-                    try:
-                        p.on_skill_event(evt)
-                    except Exception as e:
-                        ui_log(f"[Plugin] {p.name} error: {e}")
-
+            # ── Speed modification (the only thing that touches packet bytes) ──
             if prefix_ok and pkt_type == 0x02 and is_running_ref():
                 speed_info = self.skill_id_to_speed.get(skill_id)
-                # Uniform mode: apply to any detected skill even if not in lookup
                 if not speed_info:
                     u = self._parse_uniform_speed()
                     if u is not None and isinstance(u, int) and u > 0:
@@ -2383,37 +2341,25 @@ class TickToolApp:
                     spd_off, spd_len, spd_val = speed_result
                     raw_off = payload_offset + spd_off
 
-                    if allow_break:
-                        # Break: fill field with 0xFF bytes
+                    if spd_val < 10000:
+                        log_entry['action'] = 'below_threshold'
+                    elif allow_break:
                         broken = b'\xff' * spd_len
                         packet.raw[raw_off:raw_off + spd_len] = broken
                         stats['modified'] += 1
                         log_entry['action'] = 'modified_break'
                         log_entry['original_speed'] = spd_val
-                        ui_log(f"ACT {skill_name} speed "
-                               f"{spd_val / 100:.0f}% -> BREAK {spd_len}b [{'ff' * spd_len}]")
-                        if entity_key is not None and entity_tracker.is_configured:
-                            if entity_tracker.confirm_sole_key(entity_key):
-                                ui_log(f"[Entity] Confirmed key {entity_key}, cleared stale keys")
                     else:
-                        # Try to fit target varint into original field length
                         if encoded_len != spd_len:
                             encoded_speed = encode_varint_fixed(speed_pct * 100, spd_len)
                             encoded_len = len(encoded_speed)
-
                         if encoded_len == spd_len:
                             packet.raw[raw_off:raw_off + spd_len] = encoded_speed
                             stats['modified'] += 1
                             log_entry['action'] = 'modified'
                             log_entry['original_speed'] = spd_val
                             log_entry['new_speed'] = speed_pct * 100
-                            ui_log(f"ACT {skill_name} speed "
-                                   f"{spd_val / 100:.0f}% -> {speed_pct}%")
-                            if entity_key is not None and entity_tracker.is_configured:
-                                if entity_tracker.confirm_sole_key(entity_key):
-                                    ui_log(f"[Entity] Confirmed key {entity_key}, cleared stale keys")
                         else:
-                            # Can't fit target in original varint length — cap
                             max_val = (1 << (7 * spd_len)) - 1
                             capped = encode_varint_fixed(min(speed_pct * 100, max_val), spd_len)
                             packet.raw[raw_off:raw_off + spd_len] = capped
@@ -2422,76 +2368,53 @@ class TickToolApp:
                             log_entry['original_speed'] = spd_val
                             log_entry['new_speed'] = min(speed_pct * 100, max_val)
                             log_entry['cap_limit'] = max_val
-                            ui_log(f"ACT {skill_name} speed "
-                                   f"{spd_val / 100:.0f}% -> {max_val / 100:.0f}% (capped, {spd_len}b varint)")
                 elif speed_info:
                     log_entry['action'] = 'no_speed_offset'
-                    ui_log(f"ACT {skill_name} tick={tick_byte} "
-                           f"(no speed offset)")
                 else:
                     log_entry['action'] = 'no_speed_config'
-                    ui_log(f"ACT {skill_name} tick={tick_byte}")
 
             elif not prefix_ok and is_running_ref():
                 learned_speed = self._learned_speed_bytes
                 learned_session = self._learned_session_bytes
                 speed_info = self.skill_id_to_speed.get(skill_id)
-                # Uniform mode: apply to any detected skill even if not in lookup
                 if not speed_info:
                     u = self._parse_uniform_speed()
                     if u is not None and isinstance(u, int) and u > 0:
                         ue = encode_varint(u * 100)
                         speed_info = (ue, len(ue), u, self.uniform_break.get())
                 if learned_speed and learned_session and speed_info:
-                    payload_b = bytes(payload)   # bytes copy for .find()
+                    payload_b = bytes(payload)
                     has_session = payload_b.find(learned_session, 7) >= 0
                     if has_session:
                         encoded_speed, encoded_len, speed_pct, allow_break = speed_info
                         learned_len = len(learned_speed)
-
                         pos = payload_b.find(learned_speed, skill_offset + 6)
-                        if pos >= 0:
+                        if pos >= 0 and self._learned_speed_value < 10000:
+                            log_entry['action'] = 'below_threshold'
+                        elif pos >= 0:
                             raw_off = payload_offset + pos
                             fb_speed_pct = speed_pct
                             if allow_break:
-                                # Break: fill field with 0xFF bytes
                                 broken = b'\xff' * learned_len
                                 packet.raw[raw_off:raw_off + learned_len] = broken
                                 log_entry['break'] = True
                             else:
-                                # Try to fit target varint into learned field length
                                 if encoded_len != learned_len:
                                     encoded_speed = encode_varint_fixed(speed_pct * 100, learned_len)
                                     encoded_len = len(encoded_speed)
-
                                 if learned_len == encoded_len:
                                     packet.raw[raw_off:raw_off + learned_len] = encoded_speed
                                 else:
-                                    # Can't fit target in original varint length — cap
                                     max_val = (1 << (7 * learned_len)) - 1
                                     capped = encode_varint_fixed(min(speed_pct * 100, max_val), learned_len)
                                     packet.raw[raw_off:raw_off + learned_len] = capped
                                     fb_speed_pct = min(speed_pct * 100, max_val) / 100
                                     log_entry['capped'] = True
-
                             stats['modified'] += 1
-                            if log_entry.get('break'):
-                                log_entry['action'] = 'fallback_break'
-                            else:
-                                log_entry['action'] = 'fallback_modified'
+                            log_entry['action'] = 'fallback_break' if log_entry.get('break') else 'fallback_modified'
                             log_entry['original_speed'] = self._learned_speed_value
                             log_entry['new_speed'] = fb_speed_pct * 100
                             log_entry['speed_offset'] = pos
-                            if log_entry.get('break'):
-                                ui_log(f"FB {skill_name} speed "
-                                       f"{self._learned_speed_value / 100:.0f}% -> BREAK {learned_len}b [{'ff' * learned_len}]")
-                            else:
-                                cap_msg = " (capped)" if log_entry.get('capped') else ""
-                                ui_log(f"FB {skill_name} speed "
-                                       f"{self._learned_speed_value / 100:.0f}% -> {fb_speed_pct:.0f}%{cap_msg}")
-                            if entity_key is not None and entity_tracker.is_configured:
-                                if entity_tracker.confirm_sole_key(entity_key):
-                                    ui_log(f"[Entity] Confirmed key {entity_key}, cleared stale keys")
                         else:
                             log_entry['action'] = 'prefix_fail_no_speed'
                     else:
@@ -2506,12 +2429,63 @@ class TickToolApp:
             else:
                 log_entry['action'] = 'prefix_fail'
 
-            self.log_packet(log_entry)
-
+            # ── RE-INJECT IMMEDIATELY — packet is done ──
             try:
                 w.send(packet)
             except Exception as e:
                 ui_log(f"SEND ERR: {e}")
+
+            # ── POST-SEND: non-critical work (doesn't touch packet) ──
+
+            # Reassembly for entity detection
+            if plen > 3:
+                with _reassembler_lock:
+                    bindings = stream_reassembler.feed(payload)
+                for actor_id, name, strategy, msg_hex, byte5 in bindings:
+                    is_candidate = entity_tracker.on_nickname_binding(actor_id, name, byte5=byte5)
+                    self.log_packet({
+                        'action': 'entity_binding' if is_candidate else 'entity_rejected',
+                        'accepted': is_candidate,
+                        'actor_id': actor_id,
+                        'name': name,
+                        'strategy': strategy,
+                        'byte5': byte5,
+                        'msg_hex': msg_hex,
+                        'all_keys': sorted(entity_tracker.get_my_keys()),
+                    })
+                    if is_candidate:
+                        ui_log(f"[Entity] Bound: {name} -> key {actor_id} ({strategy} b5=0x{byte5:02x})")
+
+            # Plugin callbacks
+            if _plugins:
+                _src_port = _unpack_from('>H', raw, ip_hdr_len)[0]
+                _dst_port = _unpack_from('>H', raw, ip_hdr_len + 2)[0]
+                ctx = PacketContext(payload, plen, raw, payload_offset, time.time(),
+                                   _src_port, _dst_port)
+                for p in _plugins:
+                    try: p.on_packet(ctx)
+                    except Exception: pass
+
+            # Dispatch to weave plugin (on_skill_act is async, won't block)
+            if pkt_type in (0x02, 0x03) and _plugins:
+                evt = SkillEvent(skill_name, skill_id, pkt_type, tick_byte, prefix_ok, entity_key)
+                for p in _plugins:
+                    try:
+                        p.on_skill_event(evt)
+                    except Exception as e:
+                        ui_log(f"[Plugin] {p.name} error: {e}")
+
+            # Notify plugins of learned speed
+            if speed_result and _plugins:
+                spd_off, spd_len, spd_val = speed_result
+                raw_spd = bytes(payload[spd_off:spd_off + spd_len])
+                for p in _plugins:
+                    try: p.set_learned_speed(spd_val, raw_spd)
+                    except Exception: pass
+
+            # Log (deferred raw hex)
+            log_entry['raw'] = payload.hex()
+            self.log_packet(log_entry)
 
 
 # ============================================================================
