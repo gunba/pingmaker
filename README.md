@@ -30,6 +30,12 @@ From source: `python pingmaker.py` (requires Windows 10/11, admin).
 
 See [BUILD.md](BUILD.md).
 
+## Acknowledgements
+
+- [PyDivert](https://github.com/ffalcinelli/pydivert) by Fabio Falcinelli (MIT) — Python bindings for WinDivert
+- [PyDivert2](https://github.com/xshiraori/pydivert2) by xshiraori (MIT) — WinDivert 2.x compatibility fork (vendored)
+- [WinDivert](https://github.com/basil00/WinDivert) by basil00 (LGPL v3) — Windows packet capture/modification driver
+
 ## License
 
 [MIT](LICENSE)
