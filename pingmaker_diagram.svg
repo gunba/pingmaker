@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 505" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f1117"/>
+      <stop offset="100%" stop-color="#161922"/>
+    </linearGradient>
+    <linearGradient id="pingBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="skillBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="fixedBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="serverBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <linearGradient id="blockBar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ef4444" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#ef4444" stop-opacity="0.3"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrowWhite" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#9ca3af"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#34d399"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="505" fill="url(#bgGrad)" rx="12"/>
+
+  <!-- Title -->
+  <text x="480" y="38" text-anchor="middle" fill="#f1f5f9" font-size="20" font-weight="700" letter-spacing="0.5">How Pingmaker Works</text>
+  <text x="480" y="58" text-anchor="middle" fill="#94a3b8" font-size="12">Latency compensation through response packet modification — no packets sent, no memory edited</text>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- SECTION 1: WITHOUT PINGMAKER           -->
+  <!-- ═══════════════════════════════════════ -->
+  <text x="40" y="100" fill="#ef4444" font-size="14" font-weight="700" letter-spacing="1">WITHOUT PINGMAKER</text>
+  <text x="280" y="100" fill="#64748b" font-size="11">— Ping delay is added between every skill use</text>
+
+  <!-- Timeline axis -->
+  <line x1="40" y1="220" x2="920" y2="220" stroke="#334155" stroke-width="1"/>
+  <text x="480" y="240" text-anchor="middle" fill="#475569" font-size="10">TIME →</text>
+
+  <!-- Skill 1 -->
+  <!-- Input tick -->
+  <line x1="80" y1="118" x2="80" y2="215" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+  <circle cx="80" cy="118" r="4" fill="#f1f5f9"/>
+  <text x="80" y="112" text-anchor="middle" fill="#cbd5e1" font-size="9">INPUT</text>
+
+  <!-- Ping delay (client waiting for server response) -->
+  <rect x="80" y="140" width="70" height="22" rx="3" fill="url(#pingBar)" opacity="0.85"/>
+  <text x="115" y="155" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Ping: 100ms</text>
+
+  <!-- Server response arrives, skill plays on client -->
+  <rect x="150" y="140" width="140" height="22" rx="3" fill="url(#skillBar)" opacity="0.85"/>
+  <text x="220" y="155" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Client animation: 700ms</text>
+
+  <!-- Bracket for total client-side block -->
+  <line x1="80" y1="170" x2="80" y2="180" stroke="#f87171" stroke-width="1"/>
+  <line x1="80" y1="180" x2="290" y2="180" stroke="#f87171" stroke-width="1"/>
+  <line x1="290" y1="170" x2="290" y2="180" stroke="#f87171" stroke-width="1"/>
+  <text x="185" y="195" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">Client blocked: 800ms total</text>
+  <text x="185" y="208" text-anchor="middle" fill="#94a3b8" font-size="9">(100ms ping + 700ms animation)</text>
+
+  <!-- Skill 2 -->
+  <line x1="290" y1="118" x2="290" y2="215" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+  <circle cx="290" cy="118" r="4" fill="#f1f5f9"/>
+  <text x="290" y="112" text-anchor="middle" fill="#cbd5e1" font-size="9">INPUT</text>
+
+  <rect x="290" y="140" width="70" height="22" rx="3" fill="url(#pingBar)" opacity="0.85"/>
+  <text x="325" y="155" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Ping: 100ms</text>
+
+  <rect x="360" y="140" width="140" height="22" rx="3" fill="url(#skillBar)" opacity="0.85"/>
+  <text x="430" y="155" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Client animation: 700ms</text>
+
+  <line x1="290" y1="170" x2="290" y2="180" stroke="#f87171" stroke-width="1"/>
+  <line x1="290" y1="180" x2="500" y2="180" stroke="#f87171" stroke-width="1"/>
+  <line x1="500" y1="170" x2="500" y2="180" stroke="#f87171" stroke-width="1"/>
+  <text x="395" y="195" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">Client blocked: 800ms total</text>
+
+  <!-- Skill 3 -->
+  <line x1="500" y1="118" x2="500" y2="215" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+  <circle cx="500" cy="118" r="4" fill="#f1f5f9"/>
+  <text x="500" y="112" text-anchor="middle" fill="#cbd5e1" font-size="9">INPUT</text>
+
+  <rect x="500" y="140" width="70" height="22" rx="3" fill="url(#pingBar)" opacity="0.85"/>
+  <text x="535" y="155" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Ping: 100ms</text>
+
+  <rect x="570" y="140" width="140" height="22" rx="3" fill="url(#skillBar)" opacity="0.85"/>
+  <text x="640" y="155" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Client animation: 700ms</text>
+
+  <!-- Total time annotation -->
+  <line x1="80" y1="222" x2="80" y2="245" stroke="#ef4444" stroke-width="1"/>
+  <line x1="80" y1="245" x2="710" y2="245" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <line x1="710" y1="222" x2="710" y2="245" stroke="#ef4444" stroke-width="1"/>
+  <text x="395" y="262" text-anchor="middle" fill="#ef4444" font-size="12" font-weight="700">3 skills = 2400ms  (300ms wasted on ping alone)</text>
+
+  <!-- Server timeline label -->
+  <rect x="720" y="128" width="220" height="50" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="830" y="146" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600">SERVER PERSPECTIVE</text>
+  <text x="830" y="162" text-anchor="middle" fill="#cbd5e1" font-size="10">Server only sees 700ms between</text>
+  <text x="830" y="174" text-anchor="middle" fill="#cbd5e1" font-size="10">skills — ping is the client's problem</text>
+
+  <!-- ═══════════════════════════════════════ -->
+  <!-- SECTION 2: WITH PINGMAKER              -->
+  <!-- ═══════════════════════════════════════ -->
+  <line x1="40" y1="295" x2="920" y2="295" stroke="#1e293b" stroke-width="1"/>
+  <text x="40" y="325" fill="#10b981" font-size="14" font-weight="700" letter-spacing="1">WITH PINGMAKER</text>
+  <text x="245" y="325" fill="#64748b" font-size="11">— Modified response shortens client animation to compensate for ping</text>
+
+  <!-- Timeline axis -->
+  <line x1="40" y1="445" x2="920" y2="445" stroke="#334155" stroke-width="1"/>
+  <text x="480" y="465" text-anchor="middle" fill="#475569" font-size="10">TIME →</text>
+
+  <!-- Skill 1 -->
+  <line x1="80" y1="343" x2="80" y2="440" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+  <circle cx="80" cy="343" r="4" fill="#f1f5f9"/>
+  <text x="80" y="337" text-anchor="middle" fill="#cbd5e1" font-size="9">INPUT</text>
+
+  <!-- Ping still exists -->
+  <rect x="80" y="365" width="70" height="22" rx="3" fill="url(#pingBar)" opacity="0.85"/>
+  <text x="115" y="380" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Ping: 100ms</text>
+
+  <!-- Shortened client animation -->
+  <rect x="150" y="365" width="120" height="22" rx="3" fill="url(#fixedBar)" opacity="0.85"/>
+  <text x="210" y="380" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Animation: 600ms</text>
+
+  <!-- Modification callout -->
+  <line x1="210" y1="390" x2="210" y2="404" stroke="#34d399" stroke-width="1"/>
+  <text x="210" y="415" text-anchor="middle" fill="#34d399" font-size="9" font-weight="600">↑ Response modified: combat speed increased</text>
+  <text x="210" y="427" text-anchor="middle" fill="#6ee7b7" font-size="8">Client plays 600ms instead of 700ms (absorbs 100ms ping)</text>
+
+  <!-- Bracket for total -->
+  <line x1="80" y1="353" x2="80" y2="360" stroke="#34d399" stroke-width="1"/>
+  <line x1="80" y1="360" x2="270" y2="360" stroke="#34d399" stroke-width="1"/>
+  <line x1="270" y1="353" x2="270" y2="360" stroke="#34d399" stroke-width="1"/>
+
+  <!-- Skill 2 -->
+  <line x1="270" y1="343" x2="270" y2="440" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+  <circle cx="270" cy="343" r="4" fill="#f1f5f9"/>
+  <text x="270" y="337" text-anchor="middle" fill="#cbd5e1" font-size="9">INPUT</text>
+
+  <rect x="270" y="365" width="70" height="22" rx="3" fill="url(#pingBar)" opacity="0.85"/>
+  <text x="305" y="380" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Ping: 100ms</text>
+
+  <rect x="340" y="365" width="120" height="22" rx="3" fill="url(#fixedBar)" opacity="0.85"/>
+  <text x="400" y="380" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Animation: 600ms</text>
+
+  <!-- Skill 3 -->
+  <line x1="460" y1="343" x2="460" y2="440" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+  <circle cx="460" cy="343" r="4" fill="#f1f5f9"/>
+  <text x="460" y="337" text-anchor="middle" fill="#cbd5e1" font-size="9">INPUT</text>
+
+  <rect x="460" y="365" width="70" height="22" rx="3" fill="url(#pingBar)" opacity="0.85"/>
+  <text x="495" y="380" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Ping: 100ms</text>
+
+  <rect x="530" y="365" width="120" height="22" rx="3" fill="url(#fixedBar)" opacity="0.85"/>
+  <text x="590" y="380" text-anchor="middle" fill="#fff" font-size="9" font-weight="600">Animation: 600ms</text>
+
+  <!-- Total time annotation -->
+  <line x1="80" y1="447" x2="80" y2="470" stroke="#10b981" stroke-width="1"/>
+  <line x1="80" y1="470" x2="650" y2="470" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <line x1="650" y1="447" x2="650" y2="470" stroke="#10b981" stroke-width="1"/>
+  <text x="365" y="487" text-anchor="middle" fill="#10b981" font-size="12" font-weight="700">3 skills = 2100ms  (same as 0ms ping player)</text>
+
+  <!-- Net result callout -->
+  <rect x="685" y="348" width="270" height="88" rx="6" fill="#064e3b" stroke="#10b981" stroke-width="1" opacity="0.9"/>
+  <text x="820" y="370" text-anchor="middle" fill="#34d399" font-size="11" font-weight="700">NET RESULT</text>
+  <text x="820" y="388" text-anchor="middle" fill="#d1fae5" font-size="10">Total time between skills = 700ms</text>
+  <text x="820" y="404" text-anchor="middle" fill="#d1fae5" font-size="10">Identical to a 0ms ping player.</text>
+  <text x="820" y="422" text-anchor="middle" fill="#6ee7b7" font-size="9">Server still validates all timings —</text>
+  <text x="820" y="434" text-anchor="middle" fill="#6ee7b7" font-size="9">premature inputs are rejected.</text>
+
+</svg>
