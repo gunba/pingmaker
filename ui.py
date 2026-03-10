@@ -66,7 +66,6 @@ class PingmakerApp:
         self.selected_skills: dict = {}   # name -> {ids, attack_speed, overflow}
         self._skill_rows: dict = {}       # name -> {frame, speed_entry, overflow_var}
         self.is_running = False
-        self.is_learning = False
         self._loading_settings = True
 
         # UI variables
@@ -366,14 +365,6 @@ class PingmakerApp:
                  font=("Segoe UI", 9, "bold"), bg=Style.BG,
                  fg=Style.TEXT).pack(side=tk.LEFT)
 
-        self._learn_btn = tk.Button(
-            search_header, text="Auto-Detect", font=("Segoe UI", 8),
-            bg=Style.BLUE, fg=Style.TEXT,
-            activebackground=Style.YELLOW, activeforeground=Style.BG,
-            relief=tk.FLAT, cursor="hand2", padx=6,
-            command=self._toggle_learning)
-        self._learn_btn.pack(side=tk.RIGHT)
-
         self._search_var = tk.StringVar()
         self._search_var.trace('w', self._on_search_changed)
         self._search_entry = tk.Entry(
@@ -592,10 +583,6 @@ class PingmakerApp:
                 self._set_status(data, Style.RED)
             elif event_type == 'entity':
                 self._update_entity_status()
-            elif event_type == 'skill_detected':
-                if data and data not in self.selected_skills:
-                    self._add_skill(data)
-                    self._log(f"  + {data}")
 
         # Update stats
         self._modified_label.config(text=str(self.engine.modified_count))
@@ -663,6 +650,8 @@ class PingmakerApp:
         }
         self._add_skill_row(name)
         self._save_settings()
+        if self.is_running:
+            self._hot_reload()
 
     def _remove_skill(self, name: str):
         if name in self.selected_skills:
@@ -671,6 +660,8 @@ class PingmakerApp:
             if row:
                 row['frame'].destroy()
             self._save_settings()
+            if self.is_running:
+                self._hot_reload()
 
     def _refresh_skill_list(self):
         if not hasattr(self, '_skills_inner'):
@@ -908,11 +899,6 @@ class PingmakerApp:
             self._start_capture()
 
     def _start_capture(self):
-        uniform = self._parse_uniform_speed()
-        if not self.selected_skills and uniform is None:
-            self._set_status("No skills selected", Style.RED)
-            return
-
         self._sync_speeds_from_ui()
         lookup = self._build_speed_lookup()
         target_ids, first_bytes = self._build_target_ids()
@@ -971,28 +957,3 @@ class PingmakerApp:
         self._set_status("Stopped", Style.TEXT_DIM)
         self._log("Stopped")
 
-    # ── Auto-detect (learning mode) ───────────────────────────
-
-    def _toggle_learning(self):
-        if self.is_learning:
-            self._stop_learning()
-        else:
-            self._start_learning()
-
-    def _start_learning(self):
-        if self.is_running:
-            self._set_status("Stop capture first", Style.RED)
-            return
-        self.is_learning = True
-        self.engine.set_learning(True)
-        self._learn_btn.config(text="Stop", bg=Style.RED, fg="#ffffff")
-        self._start_btn.config(state=tk.DISABLED)
-        self._set_status("Use skills in game to detect them...", Style.RED)
-        self._log("Learning mode: use your skills in game")
-
-    def _stop_learning(self):
-        self.engine.set_learning(False)
-        self.is_learning = False
-        self._learn_btn.config(text="Auto-Detect", bg=Style.BLUE, fg=Style.TEXT)
-        self._start_btn.config(state=tk.NORMAL)
-        self._set_status("Ready", Style.TEXT_DIM)

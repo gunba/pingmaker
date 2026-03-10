@@ -165,9 +165,6 @@ class CaptureEngine:
         self._target_ids: set = skill_data.all_ids
         self._first_bytes: set = skill_data.first_bytes
 
-        # Auto-detect mode
-        self._learning = False
-
         # Skill event callback (for weave engine integration)
         self._on_skill_event = None
 
@@ -237,10 +234,6 @@ class CaptureEngine:
         if target_ids is not None:
             self._target_ids = target_ids
             self._first_bytes = first_bytes or set()
-
-    def set_learning(self, enabled: bool):
-        """Enable/disable skill auto-detection in sniff mode."""
-        self._learning = enabled
 
     def set_skill_callback(self, callback):
         """Register a callback for skill ACT/FB events (for weave engine).
@@ -468,11 +461,6 @@ class CaptureEngine:
         if plen >= 40:
             target_ids = self._target_ids
             first_bytes = self._first_bytes
-
-            if self._learning and not is_intercept:
-                target_ids = self._skill_data.all_ids
-                first_bytes = self._skill_data.first_bytes
-
             all_hits = find_all_skill_ids(payload, target_ids, first_bytes)
 
             # Pick the right match: prefer our entity, fall back to first
@@ -510,12 +498,6 @@ class CaptureEngine:
         if skill_id:
             pkt_type = payload[skill_offset + 5] if skill_offset + 5 < plen else -1
             skill_name = self._skill_data.id_to_name.get(skill_id, f"ID:{skill_id}")
-
-            # Auto-detect learning
-            if self._learning and not is_intercept:
-                if plen >= 50 and payload[10:12] == b'\x01\x01':
-                    self._emit('skill_detected', skill_name)
-                skill_id = 0  # don't modify or log further
 
         # ── Modify + learn speed (if skill found and not filtered) ──
         if skill_id and not skip_modify:
