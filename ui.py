@@ -159,6 +159,7 @@ class PingmakerApp:
     def _build_ui(self):
         main = ttk.Frame(self.root, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
+        self._main_frame = main
 
         # Header
         header = tk.Frame(main, bg=Style.BG)
@@ -182,7 +183,7 @@ class PingmakerApp:
         title_frame.pack(side=tk.LEFT, fill=tk.X)
         tk.Label(title_frame, text="Pingmaker", font=("Segoe UI", 14, "bold"),
                  bg=Style.BG, fg=Style.RED).pack(anchor="w")
-        tk.Label(title_frame, text="Packet speed modifier + Weave engine",
+        tk.Label(title_frame, text="Latency compensation for Aion 2",
                  font=("Segoe UI", 8), bg=Style.BG,
                  fg=Style.TEXT_DIM).pack(anchor="w")
 
@@ -350,9 +351,9 @@ class PingmakerApp:
         y = self.root.winfo_y()
         self.root.geometry(f"{new_w}x{base_h}+{x}+{y}")
 
-        # Create side panel frame
+        # Create side panel frame — pack before main so it gets space
         self._skills_panel = tk.Frame(self.root, bg=Style.BG, width=panel_w)
-        self._skills_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        self._skills_panel.pack(side=tk.RIGHT, fill=tk.Y, before=self._main_frame)
         self._skills_panel.pack_propagate(False)
 
         panel_inner = tk.Frame(self._skills_panel, bg=Style.BG, padx=8, pady=8)

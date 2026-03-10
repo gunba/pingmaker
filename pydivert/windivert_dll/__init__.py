@@ -32,6 +32,18 @@ ERROR_IO_PENDING = 997
 
 here = os.path.abspath(os.path.dirname(__file__))
 
+# Nuitka onefile uses 8.3 short paths that can break DLL loading.
+# Resolve to the actual long path so WinDLL() can find it.
+try:
+    here = os.path.realpath(here)
+    if sys.platform == 'win32':
+        import ctypes as _ct
+        buf = _ct.create_unicode_buffer(512)
+        if _ct.windll.kernel32.GetLongPathNameW(here, buf, 512):
+            here = buf.value
+except Exception:
+    pass
+
 if platform.architecture()[0] == "64bit":
     DLL_PATH = os.path.join(here, "WinDivert.dll")
 else:
