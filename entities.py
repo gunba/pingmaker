@@ -27,7 +27,7 @@ class EntityTracker:
     def on_binding(self, actor_id: int, name: str) -> bool:
         """Register a nickname binding. Returns True if accepted (matches config).
 
-        Replaces any previous key for the same name (handles zone changes).
+        Accumulates keys — confirm_key() prunes to the correct one on first ACT.
         """
         with self._lock:
             clean = name.strip().lower()
@@ -35,10 +35,6 @@ class EntityTracker:
                 return False
             if actor_id in self._keys:
                 return False
-            # Remove old key for this name and store new one
-            old_key = self._name_to_key.get(clean)
-            if old_key is not None:
-                self._keys.discard(old_key)
             self._keys.add(actor_id)
             self._name_to_key[clean] = actor_id
             return True
