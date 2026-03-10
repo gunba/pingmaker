@@ -165,11 +165,6 @@ class CaptureEngine:
         self._target_ids: set = skill_data.all_ids
         self._first_bytes: set = skill_data.first_bytes
 
-        # Weave state: learned from verified ACT packets
-        self._learned_speed_value = 0
-        self._learned_speed_bytes: bytes | None = None
-        self._learned_session_bytes: bytes | None = None
-
         # Auto-detect mode
         self._learning = False
 
@@ -468,6 +463,7 @@ class CaptureEngine:
         skill_offset = -1
         prefix_ok = False
         skip_modify = False
+        matched_char = None
 
         if plen >= 40:
             target_ids = self._target_ids
@@ -486,10 +482,12 @@ class CaptureEngine:
                                      and self._entity_tracker.has_any_keys())
 
                 best = None
+                matched_char = None
                 for sid, soff, spfx in all_hits:
                     ek = extract_entity_key(payload, soff)
                     if use_entity_filter:
                         if ek is not None and self._entity_tracker.is_mine(ek):
+                            matched_char = self._entity_tracker.get_name_for_key(ek)
                             best = (sid, soff, spfx, ek)
                             break
                     else:
@@ -524,19 +522,13 @@ class CaptureEngine:
             # Confirm entity on ACT
             if pkt_type == 0x02 and entity_key is not None and self._entity_tracker.is_configured:
                 if self._entity_tracker.confirm_key(entity_key):
-                    self._emit('log', f"[Entity] Confirmed key {entity_key} from ACT {skill_name}")
+                    char = self._entity_tracker.get_name_for_key(entity_key) or '?'
+                    self._emit('log', f"[Entity] Confirmed {char} key {entity_key} from ACT {skill_name}")
 
-            # Learn speed from verified ACT
+            # Find speed offset from verified ACT
             speed_result = None
             if prefix_ok and pkt_type == 0x02:
                 speed_result = find_attack_speed_offset(payload, skill_offset)
-                if speed_result:
-                    spd_off, spd_len, spd_val = speed_result
-                    self._learned_speed_bytes = bytes(payload[spd_off:spd_off + spd_len])
-                    self._learned_speed_value = spd_val
-                    pfx_start = skill_offset - 4
-                    if pfx_start >= 0:
-                        self._learned_session_bytes = bytes(payload[pfx_start + 1:pfx_start + 3])
 
             # Speed modification
             log_entry = {
@@ -545,13 +537,13 @@ class CaptureEngine:
             }
             if entity_key is not None:
                 log_entry['entity_key'] = entity_key
+            if matched_char:
+                log_entry['character'] = matched_char
 
             if is_intercept and self._intercept:
                 if prefix_ok and pkt_type == 0x02 and speed_result:
-                    self._modify_act(packet, speed_result, skill_id, payload_offset, log_entry)
-                elif not prefix_ok:
-                    self._modify_weave(packet, payload, skill_offset, skill_id,
-                                       payload_offset, log_entry)
+                    self._modify_act(packet, speed_result, skill_id, payload_offset,
+                                     log_entry, matched_char)
                 elif prefix_ok and pkt_type != 0x02:
                     log_entry['action'] = 'non_act'
                 else:
@@ -581,14 +573,16 @@ class CaptureEngine:
         if not is_intercept and plen > 3:
             self._learn_entities(payload)
 
-    def _modify_act(self, packet, speed_result, skill_id, payload_offset, log_entry):
-        """Modify attack speed in a verified ACT packet (structural modification)."""
+    def _modify_act(self, packet, speed_result, skill_id, payload_offset,
+                    log_entry, char_name=None):
+        """Modify attack speed in a verified ACT packet."""
         speed_info = self._speed_lookup.get(skill_id)
         if not speed_info:
             log_entry['action'] = 'no_speed_config'
             return
 
         skill_name = log_entry.get('skill_name', '?')
+        tag = f"[{char_name}] " if char_name else ""
         spd_off, spd_len, spd_val = speed_result
         encoded_speed, encoded_len, speed_pct, allow_break = speed_info
         raw_off = payload_offset + spd_off
@@ -602,7 +596,7 @@ class CaptureEngine:
             self.modified_count += 1
             log_entry['action'] = 'modified_break'
             log_entry['original_speed'] = spd_val
-            self._emit('log', f"ACT {skill_name} spd:{spd_val} -> break")
+            self._emit('log', f"{tag}ACT {skill_name} spd:{spd_val} -> break")
             return
 
         # Match byte length
@@ -616,7 +610,7 @@ class CaptureEngine:
             log_entry['action'] = 'modified'
             log_entry['original_speed'] = spd_val
             log_entry['new_speed'] = speed_pct * 100
-            self._emit('log', f"ACT {skill_name} spd:{spd_val} -> {speed_pct * 100}")
+            self._emit('log', f"{tag}ACT {skill_name} spd:{spd_val} -> {speed_pct * 100}")
         else:
             max_val = (1 << (7 * spd_len)) - 1
             capped = encode_varint_fixed(min(speed_pct * 100, max_val), spd_len)
@@ -624,70 +618,8 @@ class CaptureEngine:
             self.modified_count += 1
             log_entry['action'] = 'modified_capped'
             log_entry['original_speed'] = spd_val
-            self._emit('log', f"ACT {skill_name} spd:{spd_val} -> capped")
+            self._emit('log', f"{tag}ACT {skill_name} spd:{spd_val} -> capped")
 
-    def _modify_weave(self, packet, payload, skill_offset, skill_id,
-                      payload_offset, log_entry):
-        """Weave engine: modify fallback packet using learned speed pattern.
-
-        When a packet has a skill ID but fails prefix validation, we use the
-        speed bytes learned from a previous verified ACT packet to find and
-        modify the attack speed value by pattern matching.
-        """
-        learned_speed = self._learned_speed_bytes
-        learned_session = self._learned_session_bytes
-
-        speed_info = self._speed_lookup.get(skill_id)
-        if not speed_info or not learned_speed or not learned_session:
-            log_entry['action'] = 'prefix_fail'
-            return
-
-        payload_b = bytes(payload)
-
-        # Check session bytes are present (same game session)
-        if payload_b.find(learned_session, 7) < 0:
-            log_entry['action'] = 'prefix_fail'
-            return
-
-        # Find learned speed bytes after skill data
-        pos = payload_b.find(learned_speed, skill_offset + 6)
-        if pos < 0:
-            log_entry['action'] = 'prefix_fail_no_speed'
-            return
-
-        if self._learned_speed_value < 10000:
-            log_entry['action'] = 'below_threshold'
-            return
-
-        encoded_speed, encoded_len, speed_pct, allow_break = speed_info
-        learned_len = len(learned_speed)
-        raw_off = payload_offset + pos
-
-        skill_name = log_entry.get('skill_name', '?')
-
-        if allow_break:
-            packet.raw[raw_off:raw_off + learned_len] = b'\xff' * learned_len
-            self.modified_count += 1
-            log_entry['action'] = 'fallback_break'
-            log_entry['original_speed'] = self._learned_speed_value
-            self._emit('log', f"FB {skill_name} spd:{self._learned_speed_value} -> break")
-            return
-
-        if encoded_len != learned_len:
-            encoded_speed = encode_varint_fixed(speed_pct * 100, learned_len)
-            encoded_len = len(encoded_speed)
-
-        if learned_len == encoded_len:
-            packet.raw[raw_off:raw_off + learned_len] = encoded_speed
-        else:
-            max_val = (1 << (7 * learned_len)) - 1
-            capped = encode_varint_fixed(min(speed_pct * 100, max_val), learned_len)
-            packet.raw[raw_off:raw_off + learned_len] = capped
-
-        self.modified_count += 1
-        log_entry['action'] = 'fallback_modified'
-        log_entry['original_speed'] = self._learned_speed_value
-        self._emit('log', f"FB {skill_name} spd:{self._learned_speed_value} -> {speed_pct * 100}")
 
     def _learn_entities(self, payload):
         """Feed payload to stream reassembler and process entity bindings."""

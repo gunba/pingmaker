@@ -11,7 +11,7 @@ class EntityTracker:
 
     def __init__(self, character_names: list[str] = None):
         self._lock = threading.Lock()
-        self._names: set[str] = set()
+        self._names: dict[str, str] = {}  # lowercase -> original case
         self._keys: set[int] = set()
         self._name_to_key: dict[str, int] = {}
         if character_names:
@@ -20,7 +20,7 @@ class EntityTracker:
     def update_names(self, names: list[str]):
         """Set character names to filter for. Clears learned keys."""
         with self._lock:
-            self._names = {n.strip().lower() for n in names if n.strip()}
+            self._names = {n.strip().lower(): n.strip() for n in names if n.strip()}
             self._keys.clear()
             self._name_to_key.clear()
 
@@ -46,6 +46,14 @@ class EntityTracker:
     def is_mine(self, entity_key: int) -> bool:
         """Check if entity_key belongs to our character."""
         return entity_key in self._keys
+
+    def get_name_for_key(self, entity_key: int) -> str | None:
+        """Return the character name (original case) associated with an entity key."""
+        with self._lock:
+            for lower_name, key in self._name_to_key.items():
+                if key == entity_key:
+                    return self._names.get(lower_name, lower_name)
+        return None
 
     def confirm_key(self, entity_key: int) -> bool:
         """Confirm entity key from ACT packet — discard alternative keys."""

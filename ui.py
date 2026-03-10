@@ -16,7 +16,7 @@ from settings import load_settings, save_settings, get_settings_path
 from entities import EntityTracker
 from ports import PortTracker
 from capture import CaptureEngine
-from protocol import encode_varint, find_skill_id
+from protocol import encode_varint
 
 try:
     from weave import WeaveEngine, VisionEngine, build_trigger_ids, SCANCODE_NAMES, HAS_VISION_DEPS
@@ -193,47 +193,11 @@ class PingmakerApp:
         tab = tk.Frame(notebook, bg=Style.BG, padx=3, pady=3)
         notebook.add(tab, text="Pingmaker")
 
-        # ── Skill search ──
-        search_frame = ttk.Frame(tab)
-        search_frame.pack(fill=tk.X, pady=(5, 3))
-
-        search_header = tk.Frame(search_frame, bg=Style.BG)
-        search_header.pack(fill=tk.X, pady=(0, 3))
-        ttk.Label(search_header, text="Add Skills").pack(side=tk.LEFT)
-
-        self._learn_btn = tk.Button(
-            search_header, text="Auto-Detect", font=("Segoe UI", 8),
-            bg=Style.BLUE, fg=Style.TEXT,
-            activebackground=Style.YELLOW, activeforeground=Style.BG,
-            relief=tk.FLAT, cursor="hand2", padx=6,
-            command=self._toggle_learning)
-        self._learn_btn.pack(side=tk.RIGHT)
-
-        self._search_var = tk.StringVar()
-        self._search_var.trace('w', self._on_search_changed)
-        self._search_entry = tk.Entry(
-            search_frame, textvariable=self._search_var, font=("Segoe UI", 9),
-            bg=Style.BG_LIGHT, fg=Style.TEXT, insertbackground=Style.TEXT,
-            relief=tk.FLAT, highlightthickness=1, highlightcolor=Style.RED,
-            highlightbackground=Style.BORDER)
-        self._search_entry.pack(fill=tk.X, ipady=4)
-
-        self._results_frame = tk.Frame(search_frame, bg=Style.BG_CARD)
-        self._results_listbox = tk.Listbox(
-            self._results_frame, font=("Segoe UI", 9),
-            bg=Style.BG_CARD, fg=Style.TEXT,
-            selectbackground=Style.RED, selectforeground=Style.TEXT,
-            relief=tk.FLAT, highlightthickness=1,
-            highlightbackground=Style.BORDER, height=5, activestyle='none')
-        self._results_listbox.pack(fill=tk.X)
-        self._results_listbox.bind('<Button-1>', self._on_result_click)
-        self._results_listbox.bind('<Return>', self._on_result_click)
-
         # ── Uniform speed override ──
         uniform_frame = tk.Frame(tab, bg=Style.BG_CARD,
                                  highlightthickness=1,
                                  highlightbackground=Style.BORDER)
-        uniform_frame.pack(fill=tk.X, pady=(3, 5))
+        uniform_frame.pack(fill=tk.X, pady=(5, 5))
         uniform_inner = tk.Frame(uniform_frame, bg=Style.BG_CARD, padx=10, pady=5)
         uniform_inner.pack(fill=tk.X)
         tk.Label(uniform_inner, text="Uniform Speed Override",
@@ -262,37 +226,16 @@ class PingmakerApp:
         tk.Label(uniform_inner, text="blank=off", font=("Segoe UI", 7),
                  bg=Style.BG_CARD, fg=Style.TEXT_DIM).pack(side=tk.LEFT, padx=(6, 0))
 
-        # ── Per-skill list ──
-        skills_frame = ttk.Frame(tab)
-        skills_frame.pack(fill=tk.X, pady=(0, 5))
-
-        skills_header = tk.Frame(skills_frame, bg=Style.BG)
-        skills_header.pack(fill=tk.X, pady=(0, 3))
-        ttk.Label(skills_header, text="Skills & Attack Speed (%)").pack(side=tk.LEFT)
-        tk.Label(skills_header, text="blank=skip", font=("Segoe UI", 7),
-                 bg=Style.BG, fg=Style.TEXT_DIM).pack(side=tk.RIGHT)
-
-        skills_outer = tk.Frame(skills_frame, bg=Style.BG_CARD,
-                                highlightthickness=1,
-                                highlightbackground=Style.BORDER)
-        skills_outer.pack(fill=tk.X)
-
-        self._skills_canvas = tk.Canvas(skills_outer, bg=Style.BG_CARD,
-                                        highlightthickness=0, bd=0, height=120)
-        skills_scroll = tk.Scrollbar(skills_outer, orient=tk.VERTICAL,
-                                     command=self._skills_canvas.yview)
-        self._skills_inner = tk.Frame(self._skills_canvas, bg=Style.BG_CARD)
-        self._skills_inner.bind("<Configure>",
-            lambda e: self._skills_canvas.configure(
-                scrollregion=self._skills_canvas.bbox("all")))
-        self._skills_window = self._skills_canvas.create_window(
-            (0, 0), window=self._skills_inner, anchor="nw")
-        self._skills_canvas.configure(yscrollcommand=skills_scroll.set)
-        self._skills_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        skills_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self._skills_canvas.bind("<Configure>", self._on_canvas_resize)
-        self._skills_canvas.bind("<MouseWheel>", self._on_mousewheel)
-        self._skills_inner.bind("<MouseWheel>", self._on_mousewheel)
+        # ── Skills panel toggle button ──
+        self._skills_btn = tk.Button(
+            tab, text="Skills & Attack Speed >>", font=("Segoe UI", 9, "bold"),
+            bg=Style.BG_CARD, fg=Style.TEXT,
+            activebackground=Style.BG_LIGHT, activeforeground=Style.TEXT,
+            relief=tk.FLAT, cursor="hand2",
+            highlightthickness=1, highlightbackground=Style.BORDER,
+            command=self._toggle_skills_panel)
+        self._skills_btn.pack(fill=tk.X, ipady=4, pady=(0, 5))
+        self._skills_panel_open = False
 
         # ── Start/Stop ──
         self._start_btn = tk.Button(
@@ -384,7 +327,120 @@ class PingmakerApp:
         self._log_text.pack(fill=tk.BOTH, expand=True)
         self._log_text.configure(state=tk.DISABLED)
 
-    # ── Canvas helpers ─────────────────────────────────────────
+    # ── Skills fold-out panel ─────────────────────────────────
+
+    def _toggle_skills_panel(self):
+        if self._skills_panel_open:
+            self._close_skills_panel()
+        else:
+            self._open_skills_panel()
+
+    def _open_skills_panel(self):
+        self._skills_panel_open = True
+        self._skills_btn.config(text="<< Skills & Attack Speed")
+
+        # Remember base width and expand
+        self._base_width = self.root.winfo_width()
+        base_h = self.root.winfo_height()
+        panel_w = 320
+        new_w = self._base_width + panel_w
+
+        # Position the panel to the right of the main window
+        x = self.root.winfo_x()
+        y = self.root.winfo_y()
+        self.root.geometry(f"{new_w}x{base_h}+{x}+{y}")
+
+        # Create side panel frame
+        self._skills_panel = tk.Frame(self.root, bg=Style.BG, width=panel_w)
+        self._skills_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        self._skills_panel.pack_propagate(False)
+
+        panel_inner = tk.Frame(self._skills_panel, bg=Style.BG, padx=8, pady=8)
+        panel_inner.pack(fill=tk.BOTH, expand=True)
+
+        # Search
+        search_header = tk.Frame(panel_inner, bg=Style.BG)
+        search_header.pack(fill=tk.X, pady=(0, 3))
+        tk.Label(search_header, text="Add Skills",
+                 font=("Segoe UI", 9, "bold"), bg=Style.BG,
+                 fg=Style.TEXT).pack(side=tk.LEFT)
+
+        self._learn_btn = tk.Button(
+            search_header, text="Auto-Detect", font=("Segoe UI", 8),
+            bg=Style.BLUE, fg=Style.TEXT,
+            activebackground=Style.YELLOW, activeforeground=Style.BG,
+            relief=tk.FLAT, cursor="hand2", padx=6,
+            command=self._toggle_learning)
+        self._learn_btn.pack(side=tk.RIGHT)
+
+        self._search_var = tk.StringVar()
+        self._search_var.trace('w', self._on_search_changed)
+        self._search_entry = tk.Entry(
+            panel_inner, textvariable=self._search_var, font=("Segoe UI", 9),
+            bg=Style.BG_LIGHT, fg=Style.TEXT, insertbackground=Style.TEXT,
+            relief=tk.FLAT, highlightthickness=1, highlightcolor=Style.RED,
+            highlightbackground=Style.BORDER)
+        self._search_entry.pack(fill=tk.X, ipady=4, pady=(0, 3))
+
+        self._results_frame = tk.Frame(panel_inner, bg=Style.BG_CARD)
+        self._results_listbox = tk.Listbox(
+            self._results_frame, font=("Segoe UI", 9),
+            bg=Style.BG_CARD, fg=Style.TEXT,
+            selectbackground=Style.RED, selectforeground=Style.TEXT,
+            relief=tk.FLAT, highlightthickness=1,
+            highlightbackground=Style.BORDER, height=5, activestyle='none')
+        self._results_listbox.pack(fill=tk.X)
+        self._results_listbox.bind('<Button-1>', self._on_result_click)
+        self._results_listbox.bind('<Return>', self._on_result_click)
+
+        # Skills list header
+        skills_header = tk.Frame(panel_inner, bg=Style.BG)
+        skills_header.pack(fill=tk.X, pady=(5, 3))
+        tk.Label(skills_header, text="Skills & Attack Speed (%)",
+                 font=("Segoe UI", 9, "bold"), bg=Style.BG,
+                 fg=Style.TEXT).pack(side=tk.LEFT)
+        tk.Label(skills_header, text="blank=skip", font=("Segoe UI", 7),
+                 bg=Style.BG, fg=Style.TEXT_DIM).pack(side=tk.RIGHT)
+
+        # Scrollable skills list
+        skills_outer = tk.Frame(panel_inner, bg=Style.BG_CARD,
+                                highlightthickness=1,
+                                highlightbackground=Style.BORDER)
+        skills_outer.pack(fill=tk.BOTH, expand=True)
+
+        self._skills_canvas = tk.Canvas(skills_outer, bg=Style.BG_CARD,
+                                        highlightthickness=0, bd=0)
+        skills_scroll = tk.Scrollbar(skills_outer, orient=tk.VERTICAL,
+                                     command=self._skills_canvas.yview)
+        self._skills_inner = tk.Frame(self._skills_canvas, bg=Style.BG_CARD)
+        self._skills_inner.bind("<Configure>",
+            lambda e: self._skills_canvas.configure(
+                scrollregion=self._skills_canvas.bbox("all")))
+        self._skills_window = self._skills_canvas.create_window(
+            (0, 0), window=self._skills_inner, anchor="nw")
+        self._skills_canvas.configure(yscrollcommand=skills_scroll.set)
+        self._skills_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        skills_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self._skills_canvas.bind("<Configure>", self._on_canvas_resize)
+        self._skills_canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._skills_inner.bind("<MouseWheel>", self._on_mousewheel)
+
+        # Rebuild skill rows
+        self._refresh_skill_list()
+
+    def _close_skills_panel(self):
+        self._skills_panel_open = False
+        self._skills_btn.config(text="Skills & Attack Speed >>")
+
+        if hasattr(self, '_skills_panel'):
+            self._skills_panel.destroy()
+
+        # Restore original width
+        base_w = getattr(self, '_base_width', 380)
+        base_h = self.root.winfo_height()
+        x = self.root.winfo_x()
+        y = self.root.winfo_y()
+        self.root.geometry(f"{base_w}x{base_h}+{x}+{y}")
 
     def _on_canvas_resize(self, event):
         self._skills_canvas.itemconfig(self._skills_window, width=event.width)
@@ -616,6 +672,8 @@ class PingmakerApp:
             self._save_settings()
 
     def _refresh_skill_list(self):
+        if not hasattr(self, '_skills_inner'):
+            return
         for row in self._skill_rows.values():
             row['frame'].destroy()
         self._skill_rows.clear()
@@ -624,7 +682,7 @@ class PingmakerApp:
 
     def _add_skill_row(self, name: str):
         data = self.selected_skills.get(name)
-        if not data:
+        if not data or not hasattr(self, '_skills_inner'):
             return
 
         row = tk.Frame(self._skills_inner, bg=Style.BG_CARD)

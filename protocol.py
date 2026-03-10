@@ -80,16 +80,6 @@ def has_skill_prefix(data, offset: int) -> bool:
     return data[offset + 5] in (0x00, 0x02, 0x03, 0x04, 0x06)
 
 
-def find_skill_id(data, target_ids: set, first_bytes: set,
-                  scan_start: int = 7) -> tuple[int, int, bool]:
-    """Scan payload for a known skill ID. Returns first match.
-
-    Uses first-byte prefilter for speed. Returns (skill_id, offset, prefix_ok)
-    or (0, -1, False) if not found.
-    """
-    results = find_all_skill_ids(data, target_ids, first_bytes, scan_start)
-    return results[0] if results else (0, -1, False)
-
 
 def find_all_skill_ids(data, target_ids: set, first_bytes: set,
                        scan_start: int = 7) -> list[tuple[int, int, bool]]:

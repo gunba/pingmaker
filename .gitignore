@@ -8,3 +8,13 @@ dist/
 logs/
 pingmaker_settings.json
 .claude/
+
+# Private (weave engine / Pico HID / vision)
+weave.py
+pico_bridge.py
+raw_input_reader.py
+templates/
+pingmaker.exe
+main.build/
+main.dist/
+main.onefile-build/
