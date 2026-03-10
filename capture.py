@@ -521,9 +521,16 @@ class CaptureEngine:
         if skill_id and not skip_modify:
             # Confirm entity on ACT
             if pkt_type == 0x02 and entity_key is not None and self._entity_tracker.is_configured:
-                if self._entity_tracker.confirm_key(entity_key):
+                result = self._entity_tracker.confirm_key(entity_key)
+                if result:
                     char = self._entity_tracker.get_name_for_key(entity_key) or '?'
                     self._emit('log', f"[Entity] Confirmed {char} key {entity_key} from ACT {skill_name}")
+                    self._log_packet({
+                        'action': 'entity_confirmed',
+                        'skill_name': skill_name,
+                        'good': result['good'],
+                        'bad': result['bad'],
+                    })
 
             # Find speed offset from verified ACT
             speed_result = None
@@ -624,8 +631,9 @@ class CaptureEngine:
     def _learn_entities(self, payload):
         """Feed payload to stream reassembler and process entity bindings."""
         bindings = self._reassembler.feed(payload)
-        for actor_id, name, strategy in bindings:
-            accepted = self._entity_tracker.on_binding(actor_id, name)
+        for actor_id, name, strategy, msg_hex in bindings:
+            accepted = self._entity_tracker.on_binding(
+                actor_id, name, strategy=strategy, msg_hex=msg_hex)
             if accepted:
                 self._emit('entity', (actor_id, name, strategy))
                 self._emit('log', f"[Entity] Bound: {name} -> key {actor_id} ({strategy})")

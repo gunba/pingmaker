@@ -260,8 +260,8 @@ class StreamReassembler:
     def __init__(self):
         self._buffer = bytearray()
 
-    def feed(self, chunk) -> list[tuple[int, str, str]]:
-        """Feed TCP payload chunk. Returns [(actor_id, name, strategy), ...]."""
+    def feed(self, chunk) -> list[tuple[int, str, str, str]]:
+        """Feed TCP payload chunk. Returns [(actor_id, name, strategy, msg_hex), ...]."""
         self._buffer.extend(chunk)
         if len(self._buffer) > _MAX_BUFFER:
             self._buffer = bytearray()
@@ -277,13 +277,14 @@ class StreamReassembler:
             if len(message) < 6:
                 continue
 
+            msg_hex = message.hex()
             binding = _try_parse_nickname_0x04_0x8D(message)
             if binding:
-                results.append((binding[0], binding[1], '0x04_0x8D'))
+                results.append((binding[0], binding[1], '0x04_0x8D', msg_hex))
                 continue
             bindings = _scan_actor_name_bindings(message)
             for b in bindings:
-                results.append((b[0], b[1], 'actor_name'))
+                results.append((b[0], b[1], 'actor_name', msg_hex))
 
         return results
 
