@@ -17,15 +17,21 @@ class SkillData:
 
 
 def get_resource_path(filename: str) -> str:
-    """Get path to resource, works for dev, PyInstaller, and Nuitka."""
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, filename)
-    if getattr(sys, 'frozen', False) or hasattr(sys, '__compiled__'):
-        exe_dir = os.path.dirname(sys.executable)
-        candidate = os.path.join(exe_dir, filename)
-        if os.path.exists(candidate):
-            return candidate
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+    """Get path to resource, works for dev, PyInstaller, and Nuitka.
+
+    Checks next to __file__ first (works for source and Nuitka bundled data),
+    then next to the original exe (for external files like templates/).
+    """
+    file_dir = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(file_dir, filename)
+    if os.path.exists(candidate):
+        return candidate
+    argv0 = sys.argv[0]
+    if os.path.isabs(argv0):
+        exe_dir = os.path.dirname(argv0)
+    else:
+        exe_dir = file_dir
+    return os.path.join(exe_dir, filename)
 
 
 def load_skills(path: str = None) -> SkillData:

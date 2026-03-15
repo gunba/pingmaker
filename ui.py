@@ -66,7 +66,6 @@ class PingmakerApp:
         self.selected_skills: dict = {}   # name -> {ids, attack_speed, overflow}
         self._skill_rows: dict = {}       # name -> {frame, speed_entry, overflow_var}
         self.is_running = False
-        self.is_learning = False
         self._loading_settings = True
 
         # UI variables
@@ -81,6 +80,7 @@ class PingmakerApp:
         # Weave engine state
         self._weave_engine: 'WeaveEngine | None' = None
         self._pico_port = tk.StringVar(value="COM3")
+        self._weave_enabled = tk.BooleanVar(value=True)
         self._toggle_mode = tk.BooleanVar(value=False)
         self._potion_enabled = tk.BooleanVar(value=True)
         self._judgment_enabled = tk.BooleanVar(value=True)
@@ -159,6 +159,7 @@ class PingmakerApp:
     def _build_ui(self):
         main = ttk.Frame(self.root, padding=10)
         main.pack(fill=tk.BOTH, expand=True)
+        self._main_frame = main
 
         # Header
         header = tk.Frame(main, bg=Style.BG)
@@ -303,7 +304,7 @@ class PingmakerApp:
         self._entity_status.pack(anchor="w")
 
         # ── Weave engine tab (only if Pico detected) ──
-        if HAS_WEAVE and HAS_VISION_DEPS and find_pico_port():
+        if HAS_WEAVE and HAS_VISION_DEPS and os.path.isdir(get_resource_path("templates")):
             self._build_weave_tab(notebook)
 
         # ── Logging checkbox ──
@@ -352,7 +353,7 @@ class PingmakerApp:
 
         # Create side panel frame
         self._skills_panel = tk.Frame(self.root, bg=Style.BG, width=panel_w)
-        self._skills_panel.pack(side=tk.RIGHT, fill=tk.Y)
+        self._skills_panel.pack(side=tk.RIGHT, fill=tk.Y, before=self._main_frame)
         self._skills_panel.pack_propagate(False)
 
         panel_inner = tk.Frame(self._skills_panel, bg=Style.BG, padx=8, pady=8)
@@ -364,14 +365,6 @@ class PingmakerApp:
         tk.Label(search_header, text="Add Skills",
                  font=("Segoe UI", 9, "bold"), bg=Style.BG,
                  fg=Style.TEXT).pack(side=tk.LEFT)
-
-        self._learn_btn = tk.Button(
-            search_header, text="Auto-Detect", font=("Segoe UI", 8),
-            bg=Style.BLUE, fg=Style.TEXT,
-            activebackground=Style.YELLOW, activeforeground=Style.BG,
-            relief=tk.FLAT, cursor="hand2", padx=6,
-            command=self._toggle_learning)
-        self._learn_btn.pack(side=tk.RIGHT)
 
         self._search_var = tk.StringVar()
         self._search_var.trace('w', self._on_search_changed)
@@ -432,6 +425,10 @@ class PingmakerApp:
         self._skills_panel_open = False
         self._skills_btn.config(text="Skills & Attack Speed >>")
 
+        # Sync speeds before destroying widgets, then clear row refs
+        self._sync_speeds_from_ui()
+        self._skill_rows.clear()
+
         if hasattr(self, '_skills_panel'):
             self._skills_panel.destroy()
 
@@ -466,6 +463,15 @@ class PingmakerApp:
             inner, text="Hold 2 \u2014 auto follow-up on ACT",
             font=("Segoe UI", 8), bg=Style.BG_CARD, fg=Style.TEXT_DIM)
         self._weave_status.pack(anchor="w")
+
+        # Enable checkbox
+        tk.Checkbutton(
+            inner, text="Enable weave engine",
+            variable=self._weave_enabled,
+            font=("Segoe UI", 8), bg=Style.BG_CARD, fg=Style.TEXT,
+            activebackground=Style.BG_CARD, activeforeground=Style.TEXT,
+            selectcolor=Style.BG_LIGHT, command=self._on_weave_toggle
+        ).pack(anchor="w", pady=(6, 0))
 
         # Pico port
         port_row = tk.Frame(inner, bg=Style.BG_CARD)
@@ -591,10 +597,6 @@ class PingmakerApp:
                 self._set_status(data, Style.RED)
             elif event_type == 'entity':
                 self._update_entity_status()
-            elif event_type == 'skill_detected':
-                if data and data not in self.selected_skills:
-                    self._add_skill(data)
-                    self._log(f"  + {data}")
 
         # Update stats
         self._modified_label.config(text=str(self.engine.modified_count))
@@ -662,6 +664,8 @@ class PingmakerApp:
         }
         self._add_skill_row(name)
         self._save_settings()
+        if self.is_running:
+            self._hot_reload()
 
     def _remove_skill(self, name: str):
         if name in self.selected_skills:
@@ -670,6 +674,8 @@ class PingmakerApp:
             if row:
                 row['frame'].destroy()
             self._save_settings()
+            if self.is_running:
+                self._hot_reload()
 
     def _refresh_skill_list(self):
         if not hasattr(self, '_skills_inner'):
@@ -857,6 +863,7 @@ class PingmakerApp:
 
             # Weave settings
             self._pico_port.set(settings.get('pico_port', 'COM3') or 'COM3')
+            self._weave_enabled.set(settings.get('weave_enabled', True))
             self._toggle_mode.set(settings.get('toggle_mode', False))
             self._judgment_enabled.set(settings.get('judgment_enabled', True))
             self._noble_armor_enabled.set(settings.get('noble_armor_enabled', True))
@@ -886,6 +893,7 @@ class PingmakerApp:
                 'uniform_speed': self._parse_uniform_speed(),
                 'uniform_break': self.uniform_break.get(),
                 'pico_port': self._pico_port.get(),
+                'weave_enabled': self._weave_enabled.get(),
                 'toggle_mode': self._toggle_mode.get(),
                 'judgment_enabled': self._judgment_enabled.get(),
                 'noble_armor_enabled': self._noble_armor_enabled.get(),
@@ -907,11 +915,6 @@ class PingmakerApp:
             self._start_capture()
 
     def _start_capture(self):
-        uniform = self._parse_uniform_speed()
-        if not self.selected_skills and uniform is None:
-            self._set_status("No skills selected", Style.RED)
-            return
-
         self._sync_speeds_from_ui()
         lookup = self._build_speed_lookup()
         target_ids, first_bytes = self._build_target_ids()
@@ -925,29 +928,32 @@ class PingmakerApp:
         logs_dir = os.path.join(os.path.dirname(get_settings_path()), "logs")
         self.engine.start_logging(logs_dir)
 
-        # Start weave engine
+        # Start weave engine (if enabled)
         pico_port = self._pico_port.get().strip()
-        if HAS_WEAVE and HAS_VISION_DEPS and not pico_port:
-            pico_port = find_pico_port()
-            if pico_port:
-                self._pico_port.set(pico_port)
-        if HAS_WEAVE and HAS_VISION_DEPS and pico_port and not self._weave_engine:
-            try:
-                templates_dir = Path(get_resource_path("templates"))
-                vision = VisionEngine(templates_dir)
-                shield_ids = set(self.skill_data.skills.get("Shield of Protection", []))
-                self._weave_engine = WeaveEngine(
-                    pico_port, vision, self.skill_data.skills, shield_ids)
-                self._weave_engine.ui_log = lambda msg: self._event_queue.put_nowait(('log', msg))
-                self._sync_weave_toggles()
-                self._weave_engine.potion_enabled = self._potion_enabled.get()
-                self._weave_engine.open_skill_log(logs_dir)
-                self._weave_engine.start()
-                self.engine.set_skill_callback(self._weave_engine.on_skill_event)
-                self._log(f"[Weave] Started (Pico: {pico_port})")
-            except Exception as e:
-                self._log(f"[Weave] Failed: {e}")
-                self._weave_engine = None
+        if HAS_WEAVE and HAS_VISION_DEPS and not self._weave_enabled.get():
+            self._log("[Weave] Disabled")
+        elif HAS_WEAVE and HAS_VISION_DEPS:
+            if not pico_port:
+                pico_port = find_pico_port()
+                if pico_port:
+                    self._pico_port.set(pico_port)
+            if pico_port and not self._weave_engine:
+                try:
+                    templates_dir = Path(get_resource_path("templates"))
+                    vision = VisionEngine(templates_dir)
+                    shield_ids = set(self.skill_data.skills.get("Shield of Protection", []))
+                    self._weave_engine = WeaveEngine(
+                        pico_port, vision, self.skill_data.skills, shield_ids)
+                    self._weave_engine.ui_log = lambda msg: self._event_queue.put_nowait(('log', msg))
+                    self._sync_weave_toggles()
+                    self._weave_engine.potion_enabled = self._potion_enabled.get()
+                    self._weave_engine.open_skill_log(logs_dir)
+                    self._weave_engine.start()
+                    self.engine.set_skill_callback(self._weave_engine.on_skill_event)
+                    self._log(f"[Weave] Started (Pico: {pico_port})")
+                except Exception as e:
+                    self._log(f"[Weave] Failed: {e}")
+                    self._weave_engine = None
 
         # Switch to intercept mode
         self.engine.set_intercepting(True, lookup, target_ids, first_bytes)
@@ -970,28 +976,3 @@ class PingmakerApp:
         self._set_status("Stopped", Style.TEXT_DIM)
         self._log("Stopped")
 
-    # ── Auto-detect (learning mode) ───────────────────────────
-
-    def _toggle_learning(self):
-        if self.is_learning:
-            self._stop_learning()
-        else:
-            self._start_learning()
-
-    def _start_learning(self):
-        if self.is_running:
-            self._set_status("Stop capture first", Style.RED)
-            return
-        self.is_learning = True
-        self.engine.set_learning(True)
-        self._learn_btn.config(text="Stop", bg=Style.RED, fg="#ffffff")
-        self._start_btn.config(state=tk.DISABLED)
-        self._set_status("Use skills in game to detect them...", Style.RED)
-        self._log("Learning mode: use your skills in game")
-
-    def _stop_learning(self):
-        self.engine.set_learning(False)
-        self.is_learning = False
-        self._learn_btn.config(text="Auto-Detect", bg=Style.BLUE, fg=Style.TEXT)
-        self._start_btn.config(state=tk.NORMAL)
-        self._set_status("Ready", Style.TEXT_DIM)

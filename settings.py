@@ -5,15 +5,26 @@ import os
 import sys
 
 
+def _get_app_dir() -> str:
+    """Get the directory containing the exe or script.
+
+    In Nuitka onefile builds, __file__ points to the temp extraction dir,
+    so we use sys.argv[0] which is the original exe path. To handle UAC
+    changing CWD to System32, we check if sys.argv[0] exists as-is first.
+    """
+    argv0 = sys.argv[0]
+    if os.path.isabs(argv0):
+        return os.path.dirname(argv0)
+    file_dir = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(file_dir, os.path.basename(argv0))
+    if os.path.exists(candidate):
+        return file_dir
+    return file_dir
+
+
 def get_settings_path() -> str:
     """Get path to settings file (next to exe or script)."""
-    if hasattr(sys, '__compiled__'):
-        base = os.path.dirname(os.path.abspath(sys.argv[0]))
-    elif getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, "pingmaker_settings.json")
+    return os.path.join(_get_app_dir(), "pingmaker_settings.json")
 
 
 def load_settings() -> dict:

