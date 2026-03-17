@@ -22,12 +22,10 @@ def get_resource_path(filename: str) -> str:
     Checks next to __file__ first (works for source and Nuitka bundled data),
     then next to the original exe (for external files like templates/).
     """
-    # Bundled data (skills.json, icons) — extracted alongside __file__
     file_dir = os.path.dirname(os.path.abspath(__file__))
     candidate = os.path.join(file_dir, filename)
     if os.path.exists(candidate):
         return candidate
-    # External files (templates/) — next to the actual exe
     argv0 = sys.argv[0]
     if os.path.isabs(argv0):
         exe_dir = os.path.dirname(argv0)

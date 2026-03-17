@@ -13,15 +13,12 @@ def _get_app_dir() -> str:
     changing CWD to System32, we check if sys.argv[0] exists as-is first.
     """
     argv0 = sys.argv[0]
-    # If argv0 is already absolute or exists at that path, use it directly
     if os.path.isabs(argv0):
         return os.path.dirname(argv0)
-    # Check if it exists relative to __file__'s dir (Nuitka standalone/source)
     file_dir = os.path.dirname(os.path.abspath(__file__))
     candidate = os.path.join(file_dir, os.path.basename(argv0))
     if os.path.exists(candidate):
         return file_dir
-    # Fall back to __file__ dir (running from source)
     return file_dir
 
 

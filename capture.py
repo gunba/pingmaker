@@ -10,7 +10,6 @@ Communication with UI via event queue:
   ('log', message_string)
   ('error', message_string)
   ('entity', (actor_id, name, strategy))
-  ('skill_detected', skill_name)  -- auto-detect mode only
 """
 
 import json
@@ -461,6 +460,7 @@ class CaptureEngine:
         if plen >= 40:
             target_ids = self._target_ids
             first_bytes = self._first_bytes
+
             all_hits = find_all_skill_ids(payload, target_ids, first_bytes)
 
             # Pick the right match: prefer our entity, fall back to first
@@ -501,19 +501,6 @@ class CaptureEngine:
 
         # ── Modify + learn speed (if skill found and not filtered) ──
         if skill_id and not skip_modify:
-            # Confirm entity on ACT
-            if pkt_type == 0x02 and entity_key is not None and self._entity_tracker.is_configured:
-                result = self._entity_tracker.confirm_key(entity_key)
-                if result:
-                    char = self._entity_tracker.get_name_for_key(entity_key) or '?'
-                    self._emit('log', f"[Entity] Confirmed {char} key {entity_key} from ACT {skill_name}")
-                    self._log_packet({
-                        'action': 'entity_confirmed',
-                        'skill_name': skill_name,
-                        'good': result['good'],
-                        'bad': result['bad'],
-                    })
-
             # Find speed offset from verified ACT
             speed_result = None
             if prefix_ok and pkt_type == 0x02:

@@ -156,8 +156,12 @@ def find_attack_speed_offset(data, skill_offset: int) -> Optional[tuple[int, int
     if speed > 9999999:
         return None
 
-    # structural validation: skill_id bytes must reappear shortly after speed
+    # byte after speed varint must be 0x01 or 0x02 (unknown purpose — testing)
     post = pos + speed_len
+    if post >= length or data[post] not in (0x01, 0x02):
+        return None
+
+    # structural validation: skill_id bytes must reappear shortly after speed
     skill_id_bytes = bytes(data[skill_offset:skill_offset + 4])
     post_region = bytes(data[post:min(post + 16, length)])
     if skill_id_bytes not in post_region:
@@ -184,72 +188,46 @@ def _sanitize_nickname(raw: str) -> str:
     return ''.join(clean)
 
 
-def _try_parse_nickname_0x04_0x8D(segment: bytes) -> Optional[tuple[int, str]]:
-    """Strategy 1: parse [varint_len][0x04][0x8D]...[actor_id][name_len][name]."""
-    if len(segment) < 14:
-        return None
-    _, vlen = parse_varint(segment, 0)
-    if vlen <= 0:
-        return None
-    op = vlen
-    if op + 1 >= len(segment) or segment[op] != 0x04 or segment[op + 1] != 0x8D:
-        return None
-    if 10 >= len(segment):
-        return None
-    actor_id, alen = parse_varint(segment, 10)
-    if alen <= 0 or actor_id <= 0 or actor_id > 0x7FFFFFFF:
-        return None
-    npos = 10 + alen
-    if npos >= len(segment):
-        return None
-    nlen = segment[npos]
-    if nlen < 1 or nlen > 72:
-        return None
-    nstart = npos + 1
-    nend = nstart + nlen
-    if nend > len(segment):
-        return None
-    try:
-        raw_name = segment[nstart:nend].decode('utf-8')
-    except UnicodeDecodeError:
-        return None
-    name = _sanitize_nickname(raw_name)
-    return (actor_id, name) if len(name) >= 2 else None
-
-
 def _scan_actor_name_bindings(data: bytes) -> list[tuple[int, str]]:
-    """Strategy 2: scan for 0x36 + varint actor_id, then 0x07 + name_len + name."""
+    """Scan for strict binding pattern: 36 [varint actor_id] [4 gap bytes] 07 [name_len] [name]."""
     results = []
     i = 0
     dlen = len(data)
-    last_actor_id = None
-    last_actor_end = -1
     while i < dlen:
-        if data[i] == 0x36:
-            actor_id, alen = parse_varint(data, i + 1)
-            if alen > 0 and 100 <= actor_id <= 99999:
-                last_actor_id = actor_id
-                last_actor_end = i + 1 + alen
+        if data[i] != 0x36:
             i += 1
             continue
-        if data[i] == 0x07 and last_actor_id is not None:
-            li = i + 1
-            if li < dlen:
-                nlen = data[li]
-                if 1 <= nlen <= 24:
-                    ns = li + 1
-                    ne = ns + nlen
-                    if ne <= dlen and i >= last_actor_end:
-                        try:
-                            raw_name = data[ns:ne].decode('utf-8')
-                        except UnicodeDecodeError:
-                            i += 1
-                            continue
-                        name = _sanitize_nickname(raw_name)
-                        if len(name) >= 2:
-                            results.append((last_actor_id, name))
-                            last_actor_id = None
-        i += 1
+        actor_id, alen = parse_varint(data, i + 1)
+        if alen <= 0 or not (100 <= actor_id <= 99999):
+            i += 1
+            continue
+        # exactly 4 gap bytes after the varint, then 0x07
+        tag_pos = i + 1 + alen + 4
+        if tag_pos >= dlen or data[tag_pos] != 0x07:
+            i += 1
+            continue
+        len_pos = tag_pos + 1
+        if len_pos >= dlen:
+            i += 1
+            continue
+        nlen = data[len_pos]
+        if not (1 <= nlen <= 24):
+            i += 1
+            continue
+        nstart = len_pos + 1
+        nend = nstart + nlen
+        if nend > dlen:
+            i += 1
+            continue
+        try:
+            raw_name = data[nstart:nend].decode('utf-8')
+        except UnicodeDecodeError:
+            i += 1
+            continue
+        name = _sanitize_nickname(raw_name)
+        if len(name) >= 2:
+            results.append((actor_id, name))
+        i = nend  # skip past this binding
     return results
 
 
@@ -278,13 +256,8 @@ class StreamReassembler:
                 continue
 
             msg_hex = message.hex()
-            binding = _try_parse_nickname_0x04_0x8D(message)
-            if binding:
-                results.append((binding[0], binding[1], '0x04_0x8D', msg_hex))
-                continue
-            bindings = _scan_actor_name_bindings(message)
-            for b in bindings:
-                results.append((b[0], b[1], 'actor_name', msg_hex))
+            for actor_id, name in _scan_actor_name_bindings(message):
+                results.append((actor_id, name, 'actor_name', msg_hex))
 
         return results
 
